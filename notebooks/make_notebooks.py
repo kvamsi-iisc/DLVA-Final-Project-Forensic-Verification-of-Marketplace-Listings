@@ -29,7 +29,9 @@ SETUP_CODE = r'''import os, shutil, subprocess, sys, pathlib, json
 REPO_URL = "https://github.com/kvamsi-iisc/DLVA-Final-Project-Forensic-Verification-of-Marketplace-Listings.git"   # used if the code dataset is not attached
 WORK = pathlib.Path("/kaggle/working"); REPO = WORK / "repo"; DATA = WORK / "data"; OUT = WORK / "outputs"
 code_ds = pathlib.Path("/kaggle/input/listing-verifier-code")
-if not REPO.exists():
+if REPO.exists() and (REPO / ".git").exists():
+    subprocess.run(["git", "-C", str(REPO), "pull", "--ff-only", "-q"], check=False)     # pick up code fixes in a reused session
+elif not REPO.exists():
     if code_ds.exists():
         shutil.copytree(code_ds, REPO)
     else:
@@ -37,60 +39,23 @@ if not REPO.exists():
 os.chdir(REPO)
 os.environ["LV_DATA_ROOT"] = str(DATA); os.environ["LV_OUTPUT_ROOT"] = str(OUT)
 os.environ["HF_HOME"] = str(WORK / "hf_cache")           # model weights land here (removed before publishing)
-DATA.mkdir(exist_ok=True); OUT.mkdir(exist_ok=True)
 try:
     from kaggle_secrets import UserSecretsClient
     os.environ["HF_TOKEN"] = UserSecretsClient().get_secret("HF_TOKEN")
 except Exception as e:
     print("no HF_TOKEN secret:", type(e).__name__, "(fine unless a gated model is needed)")
-print("python", sys.version.split()[0])
+print("python", sys.version.split()[0], "| code:", subprocess.run(["git", "-C", str(REPO), "log", "-1", "--format=%h %s"], capture_output=True, text=True).stdout.strip())
 pip = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", "requirements-kaggle.txt"], capture_output=True, text=True)
 if pip.returncode != 0:
     print(pip.stdout[-3000:], pip.stderr[-3000:])          # show WHY before stopping (e.g. a pin without a wheel for this Python)
     raise SystemExit("pip install failed; see output above")
 subprocess.run([sys.executable, "-m", "pip", "check"], check=False)
-
-LOGS = OUT / "logs"; LOGS.mkdir(parents=True, exist_ok=True)
-
-def run(*args):
-    """Run a pipeline script; stream its output to the cell AND to OUT/logs/<script>_<time>.log,
-    append a completion record to OUT/logs/completed.jsonl, and stop the notebook on a non-zero exit."""
-    import time, datetime
-    cmd = [sys.executable, *[str(a) for a in args]]
-    name = pathlib.Path(str(args[0])).stem
-    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    log_path = LOGS / f"{name}_{stamp}.log"
-    print(">>>", " ".join(cmd[1:]), "->", log_path.name, flush=True)
-    t0 = time.time()
-    with open(log_path, "w") as log:
-        log.write("$ " + " ".join(cmd) + "\n")
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-        for line in proc.stdout:
-            print(line, end="", flush=True); log.write(line)
-        rc = proc.wait()
-    record = {"script": name, "args": cmd[2:], "returncode": rc, "seconds": round(time.time() - t0, 1),
-              "log": str(log_path), "finished_utc": datetime.datetime.now(datetime.timezone.utc).isoformat()}
-    with open(LOGS / "completed.jsonl", "a") as f:
-        f.write(json.dumps(record) + "\n")
-    if rc != 0:
-        raise subprocess.CalledProcessError(rc, cmd)
-
-def attach(slug, sub, dest, must_contain=None):
-    """Copy a sub-folder of an attached Kaggle dataset into DATA/OUT (copy, not symlink: scripts write next to inputs).
-    Refuses silently stale copies: if `must_contain` is missing from an existing dest, the copy is redone."""
-    base = pathlib.Path("/kaggle/input") / slug
-    src = base / sub if (base / sub).exists() else base
-    dst = pathlib.Path(dest)
-    if dst.exists() and (must_contain is None or (dst / must_contain).exists()):
-        print("exists:", dst); return
-    if dst.exists():
-        shutil.rmtree(dst)
-    if not src.exists():
-        raise FileNotFoundError(f"dataset {slug} is not attached (expected {src})")
-    print("copy", src, "->", dst); shutil.copytree(src, dst)
-
+sys.path.insert(0, str(REPO))
+from listing_verifier.kaggle import init, run, attach, optional_attach, merge_fakes   # helpers live in the repo: fixes need no re-import
+WORK, REPO, DATA, OUT, LOGS = init(WORK)
 run("scripts/env_report.py", "--out", OUT / "results" / "env_report.json")
 import torch; print(f"visible GPUs: {torch.cuda.device_count()}")
+print("attached inputs:", sorted(p.name for p in pathlib.Path("/kaggle/input").iterdir()) if pathlib.Path("/kaggle/input").exists() else [])
 '''
 
 PERSIST_MD = """## Persisting outputs
@@ -125,13 +90,7 @@ def nb(title, intro_md, cells, out_name, required):
 FAKE_SLUGS = ["abo-fakes-pilot", "abo-fakes-turbo-t2i", "abo-fakes-turbo-i2i", "abo-fakes-sd15-i2i",
               "abo-fakes-kand-t2i", "abo-fakes-kand-i2i"]
 
-MERGE_FAKES = r'''for slug in FAKE_SLUGS:
-    src = pathlib.Path("/kaggle/input") / slug
-    if not src.exists():
-        print("not attached:", slug); continue
-    fakes_root = next(p for p in [src / "data" / "fakes", src / "fakes", src] if p.exists())
-    shutil.copytree(fakes_root, DATA / "fakes", dirs_exist_ok=True); print("merged", slug)
-print("fake chunks:", len(list((DATA / "fakes").rglob("chunk_*.csv"))))'''
+MERGE_FAKES = r'''merge_fakes(FAKE_SLUGS, DATA / "fakes")'''
 
 
 # --------------------------------------------------------------------------- 1
@@ -257,8 +216,8 @@ Validation is split by family into a selection half and a calibration half; thre
 reported as actual TPR/FPR on test. Then: JPEG curve on identical images, per-generator rows, UnivFD baseline
 if present, PNG storage diagnostic. On the **pilot**, only `main` is trained.""",
    [("code", 'FAKE_SLUGS = ' + repr(FAKE_SLUGS) + '\nattach("abo-prepared", "data/processed", DATA / "processed", must_contain="abo_clean.csv")\n' + MERGE_FAKES + r'''
-if pathlib.Path("/kaggle/input/cf-subset").exists(): attach("cf-subset", "data/forensics", DATA / "forensics", must_contain="forensics_subset.csv")
-if pathlib.Path("/kaggle/input/phone-set").exists(): attach("phone-set", "phone", DATA / "phone", must_contain="labels.csv")
+optional_attach("cf-subset", "data/forensics", DATA / "forensics", must_contain="forensics_subset.csv")
+optional_attach("phone-set", "phone", DATA / "phone", must_contain="labels.csv")
 uf = pathlib.Path("/kaggle/input/univfd-weights/fc_weights.pth")
 if uf.exists():
     (OUT / "checkpoints").mkdir(parents=True, exist_ok=True); shutil.copy(uf, OUT / "checkpoints" / "univfd_fc_weights.pth")
@@ -312,7 +271,7 @@ attach("lv-features-checkpoints", "data/features", DATA / "features", must_conta
 attach("lv-features-checkpoints", "outputs/checkpoints", OUT / "checkpoints", must_contain="main")
 FAKE_SLUGS = ''' + repr(FAKE_SLUGS) + r'''
 ''' + MERGE_FAKES + r'''
-if pathlib.Path("/kaggle/input/phone-set").exists(): attach("phone-set", "phone", DATA / "phone", must_contain="labels.csv")
+optional_attach("phone-set", "phone", DATA / "phone", must_contain="labels.csv")
 run("scripts/05_build_index.py", "--no-audit")     # rebuild so paths match this session (phone included)'''),
     ("code", r'''# VLM pilot: letter-logit answers vs generated answers on 20 train images
 import pandas as pd
@@ -367,7 +326,7 @@ if cal.exists():   # ONLY the consistency-stage artifacts; never let an older co
         shutil.copy(f, OUT / "checkpoints" / "main" / f.name); print("calibrator:", f.name)
 FAKE_SLUGS = ''' + repr(FAKE_SLUGS) + r'''
 ''' + MERGE_FAKES + r'''
-if pathlib.Path("/kaggle/input/phone-set").exists(): attach("phone-set", "phone", DATA / "phone", must_contain="labels.csv")
+optional_attach("phone-set", "phone", DATA / "phone", must_contain="labels.csv")
 run("scripts/05_build_index.py", "--no-audit")
 run("scripts/12_build_demo_bundle.py", "--tag", "main", "--n-examples", 12)
 print(json.dumps(json.load(open(OUT / "demo_bundle" / "manifest.json")), indent=1))
