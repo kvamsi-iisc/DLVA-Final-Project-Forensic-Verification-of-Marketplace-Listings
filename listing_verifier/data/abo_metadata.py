@@ -174,12 +174,15 @@ def extract_count(item_name: Optional[str]):
 
 
 def is_placeholder_description(desc: Optional[str]) -> bool:
-    if desc is None:
-        return True
-    d = str(desc).strip()
-    if len(d) < 20:
-        return True
-    return bool(_PLACEHOLDER_RE.search(d))
+    """True only for an ACTUAL placeholder string ("Content coming soon").
+
+    A missing description is not a placeholder: most ABO listings have no
+    product_description at all (they use bullet points), and we never read the
+    description for labels. Dropping those lost ~85% of the catalogue in the
+    first Kaggle run (2,001 listings kept instead of ~10,000)."""
+    if desc is None or not str(desc).strip():
+        return False
+    return bool(_PLACEHOLDER_RE.search(str(desc)))
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +308,7 @@ def clean_listings(df: pd.DataFrame) -> pd.DataFrame:
     out["count_source"] = [s for _, s in counts]
     out["count_verifiable"] = out["count"].map(lambda c: c is not None and COUNT_MIN <= c <= COUNT_MAX)
     out["placeholder_desc"] = out["description"].map(is_placeholder_description)
+    out["has_description"] = out["description"].map(lambda d: d is not None and bool(str(d).strip()))
     out["family_key"] = [family_key(b, n, m) for b, n, m in zip(out["brand"], out["item_name"], out["model_number"])]
     out["product_noun"] = out["product_type"].map(product_noun)
 
@@ -328,6 +332,7 @@ def cleaning_report(df: pd.DataFrame) -> dict:
         "n_with_material": int(kept["material"].notna().sum()),
         "n_with_count_regex": int((kept["count_source"] == "regex").sum()),
         "n_with_count_inferred": int((kept["count_source"] == "inferred_single").sum()),
+        "n_with_description": int(kept["has_description"].sum()),
         "n_families": int(kept["family_key"].nunique()),
         "n_brands": int(kept["brand"].nunique()),
         "colour_distribution": kept["colour"].value_counts().to_dict(),

@@ -54,7 +54,7 @@ Two branches sharing the frozen backbone:
 ## Constraints that must hold in any code written here
 
 - **Split train/val/test by ABO product family**, never by listing (brand overlap is reported, not forbidden; a strict brand split is unusable on ABO). Near-duplicate listings leak templates across splits and inflate scores.
-- **Clean ABO metadata before use**: map colours to a fixed vocabulary of about 12 colours, drop listings with placeholder descriptions ("Content coming soon"), and verify only attributes present in structured fields.
+- **Clean ABO metadata before use**: map colours to a fixed vocabulary of about 12 colours, drop listings whose description is a placeholder string ("Content coming soon"; a *missing* description is fine, most ABO listings have none), and verify only attributes present in structured fields.
 - **Pin every dependency version** in `requirements.txt` from the first commit (`open_clip`, `transformers`, `diffusers`, `datasets`, `torch`). API drift in these libraries is a named project risk.
 - **Generate fakes in chunks of about 500** and persist each chunk (Google Drive or Kaggle output) before continuing; Colab sessions disconnect.
 - **Demo must run on CPU, offline, on pre-tested inputs.** No live generation, no fetching listings from the internet. Everything fits under 6 GB GPU memory for training and runs on a laptop CPU at inference.

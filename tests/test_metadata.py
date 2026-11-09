@@ -33,7 +33,9 @@ class MetadataTests(unittest.TestCase):
 
     def test_placeholder(self):
         self.assertTrue(is_placeholder_description("Content coming soon"))
-        self.assertTrue(is_placeholder_description(""))
+        self.assertTrue(is_placeholder_description("  description COMING SOON  "))
+        self.assertFalse(is_placeholder_description(""))        # missing is not a placeholder
+        self.assertFalse(is_placeholder_description(None))
         self.assertFalse(is_placeholder_description("A sturdy oak table with four legs and a drawer."))
 
     def test_family_key_groups_variants(self):
