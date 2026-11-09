@@ -26,7 +26,7 @@ to your GitHub repo. Turn on **Internet** (pip, ABO and HF downloads). For the G
 **Settings → Accelerator → GPU T4 x2**. Store your Hugging Face token as the Kaggle secret `HF_TOKEN`."""
 
 SETUP_CODE = r'''import os, shutil, subprocess, sys, pathlib, json
-REPO_URL = "https://github.com/YOUR_USER/listing-verifier.git"   # <- only used if the code dataset is not attached
+REPO_URL = "https://github.com/kvamsi-iisc/DLVA-Final-Project-Forensic-Verification-of-Marketplace-Listings.git"   # used if the code dataset is not attached
 WORK = pathlib.Path("/kaggle/working"); REPO = WORK / "repo"; DATA = WORK / "data"; OUT = WORK / "outputs"
 code_ds = pathlib.Path("/kaggle/input/listing-verifier-code")
 if not REPO.exists():
@@ -43,7 +43,11 @@ try:
     os.environ["HF_TOKEN"] = UserSecretsClient().get_secret("HF_TOKEN")
 except Exception as e:
     print("no HF_TOKEN secret:", type(e).__name__, "(fine unless a gated model is needed)")
-subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", "requirements-kaggle.txt"], check=True)
+print("python", sys.version.split()[0])
+pip = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", "requirements-kaggle.txt"], capture_output=True, text=True)
+if pip.returncode != 0:
+    print(pip.stdout[-3000:], pip.stderr[-3000:])          # show WHY before stopping (e.g. a pin without a wheel for this Python)
+    raise SystemExit("pip install failed; see output above")
 subprocess.run([sys.executable, "-m", "pip", "check"], check=False)
 
 LOGS = OUT / "logs"; LOGS.mkdir(parents=True, exist_ok=True)

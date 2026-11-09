@@ -162,6 +162,7 @@ record a backup video.
 
 | Symptom | Do |
 |---|---|
+| `Failed building wheel for <pkg>` during setup | the Kaggle image's Python has no wheel for that pin; every pin in `requirements-kaggle.txt` was checked for Python 3.13 wheels, so this means the image changed again: re-check the pin on PyPI and bump it, never add build tools |
 | Kaggle refuses a GPU | queue is busy; retry later or run that step on Colab with the same scripts |
 | Only `visible GPUs: 1` is printed | the session is T4 x1 or P100; `--gpus auto` runs one worker, just slower |
 | One `[gpu1]` worker fails mid-run | re-run the same cell; both workers resume from their finished chunks/parts/shards |

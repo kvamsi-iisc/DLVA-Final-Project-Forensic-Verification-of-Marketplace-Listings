@@ -1,4 +1,5 @@
-# Installed ON TOP of the Kaggle GPU image (which ships its own CUDA torch).
+# Installed ON TOP of the Kaggle GPU image (which ships its own CUDA torch; Python 3.13 as of Nov 2026).
+# Every pin below has a Python 3.13 Linux wheel or is pure Python (checked 2026-11-09); nothing compiles from source.
 # We deliberately do not re-pin torch on Kaggle: replacing the image's torch
 # wheel is slow and can break CUDA. Each notebook prints and logs the torch /
 # CUDA version it actually ran with (see scripts/env_report.py) so the report
@@ -11,7 +12,6 @@ transformers==4.57.6
 tokenizers==0.22.2
 huggingface_hub==0.35.3
 safetensors==0.7.0
-sentencepiece==0.2.0
 protobuf==5.29.3
 datasets==4.5.0
 diffusers==0.35.1
