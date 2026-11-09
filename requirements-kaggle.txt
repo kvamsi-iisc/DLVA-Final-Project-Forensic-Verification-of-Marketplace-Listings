@@ -1,0 +1,25 @@
+# Installed ON TOP of the Kaggle GPU image (which ships its own CUDA torch).
+# We deliberately do not re-pin torch on Kaggle: replacing the image's torch
+# wheel is slow and can break CUDA. Each notebook prints and logs the torch /
+# CUDA version it actually ran with (see scripts/env_report.py) so the report
+# can state it. Everything else is pinned to the same versions as requirements.txt.
+open_clip_torch==2.32.0
+timm==1.0.19
+ftfy==6.3.1
+regex==2024.11.6
+transformers==4.57.6
+tokenizers==0.22.2
+huggingface_hub==0.35.3
+safetensors==0.7.0
+sentencepiece==0.2.0
+protobuf==5.29.3
+datasets==4.5.0
+diffusers==0.35.1
+accelerate==1.10.1
+scikit-learn==1.6.1
+pandas==2.3.3
+pyarrow==21.0.0
+matplotlib==3.9.4
+tqdm==4.67.3
+joblib==1.5.3
+kaggle==1.7.4.5
