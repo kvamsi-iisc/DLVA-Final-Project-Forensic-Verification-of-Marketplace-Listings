@@ -140,7 +140,7 @@ def log_invocation(out_dir, extra: Optional[dict] = None):
     import datetime
     import platform
     from pathlib import Path as _P
-    info = {"argv": sys.argv, "cwd": os.getcwd(), "time_utc": datetime.datetime.utcnow().isoformat() + "Z",
+    info = {"argv": sys.argv, "cwd": os.getcwd(), "time_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "python": sys.version.split()[0], "platform": platform.platform(),
             "env": {k: v for k, v in os.environ.items() if k.startswith("LV_") or k in ("HF_HOME", "LV_WORKER")}}
     try:

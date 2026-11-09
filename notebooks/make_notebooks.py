@@ -58,7 +58,7 @@ def run(*args):
     import time, datetime
     cmd = [sys.executable, *[str(a) for a in args]]
     name = pathlib.Path(str(args[0])).stem
-    stamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     log_path = LOGS / f"{name}_{stamp}.log"
     print(">>>", " ".join(cmd[1:]), "->", log_path.name, flush=True)
     t0 = time.time()
@@ -69,7 +69,7 @@ def run(*args):
             print(line, end="", flush=True); log.write(line)
         rc = proc.wait()
     record = {"script": name, "args": cmd[2:], "returncode": rc, "seconds": round(time.time() - t0, 1),
-              "log": str(log_path), "finished_utc": datetime.datetime.utcnow().isoformat() + "Z"}
+              "log": str(log_path), "finished_utc": datetime.datetime.now(datetime.timezone.utc).isoformat()}
     with open(LOGS / "completed.jsonl", "a") as f:
         f.write(json.dumps(record) + "\n")
     if rc != 0:
