@@ -12,7 +12,8 @@ transformers==4.57.6
 tokenizers==0.22.2
 huggingface_hub==0.35.3
 safetensors==0.7.0
-protobuf==5.29.3
+# protobuf: NOT re-pinned on Kaggle. The image's TensorFlow carries protobuf-6 gencode; downgrading the
+# runtime to 5.29 made `import transformers` -> `import tensorflow` fail (USE_TF=0 is also set in scripts/_common.py).
 datasets==4.5.0
 diffusers==0.35.1
 accelerate==1.10.1

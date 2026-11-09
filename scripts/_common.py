@@ -3,9 +3,17 @@ script is run from anywhere (Kaggle runs `python scripts/x.py` from the repo).""
 from __future__ import annotations
 
 import json
+import os
 import random
 import sys
 from pathlib import Path
+
+# transformers imports TensorFlow/JAX when they happen to be installed (Kaggle image); we only
+# use torch, and TF's generated protobuf code clashes with our pinned protobuf runtime.
+os.environ.setdefault("USE_TF", "0")
+os.environ.setdefault("USE_TORCH", "1")
+os.environ.setdefault("TRANSFORMERS_NO_TF", "1")
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
 import numpy as np
 

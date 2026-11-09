@@ -40,6 +40,7 @@ elif not REPO.exists():
 os.chdir(REPO)
 os.environ["LV_DATA_ROOT"] = str(DATA); os.environ["LV_OUTPUT_ROOT"] = str(OUT)
 os.environ["HF_HOME"] = str(WORK / "hf_cache")           # model weights land here (removed before publishing)
+os.environ["USE_TF"] = "0"; os.environ["USE_TORCH"] = "1"; os.environ["TRANSFORMERS_NO_TF"] = "1"   # torch only: the image's TensorFlow breaks transformers imports
 try:
     from kaggle_secrets import UserSecretsClient
     os.environ["HF_TOKEN"] = UserSecretsClient().get_secret("HF_TOKEN")

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -23,6 +24,10 @@ _STATE = {}
 
 
 def init(work="/kaggle/working"):
+    # never let transformers pull in the image's TensorFlow (protobuf gencode/runtime clash); workers inherit this
+    os.environ.setdefault("USE_TF", "0")
+    os.environ.setdefault("USE_TORCH", "1")
+    os.environ.setdefault("TRANSFORMERS_NO_TF", "1")
     work = Path(work)
     paths = {"WORK": work, "REPO": work / "repo", "DATA": work / "data", "OUT": work / "outputs", "LOGS": work / "outputs" / "logs"}
     for p in ("DATA", "OUT", "LOGS"):
