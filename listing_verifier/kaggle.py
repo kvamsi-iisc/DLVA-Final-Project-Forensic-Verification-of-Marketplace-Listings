@@ -3,6 +3,9 @@
 
     from listing_verifier.kaggle import init, run, attach, merge_fakes
     WORK, REPO, DATA, OUT, LOGS = init("/kaggle/working")
+
+Attached inputs are found in both Kaggle layouts: classic `/kaggle/input/<slug>` and
+the newer `/kaggle/input/datasets/<owner>/<slug>` (`dataset_root`, `input_file`, `is_attached`).
 """
 from __future__ import annotations
 
@@ -65,14 +68,68 @@ def _describe(base: Path, depth: int = 2) -> str:
     return "\n".join(lines)
 
 
+def dataset_root(slug: str, input_root: Path = INPUT) -> Optional[Path]:
+    """Folder of an attached dataset, whichever layout Kaggle uses:
+    classic `/kaggle/input/<slug>` or the newer `/kaggle/input/datasets/<owner>/<slug>`
+    (models and competitions get their own prefixes the same way). Falls back to any
+    directory named `slug` within three levels, so a renamed prefix does not break us."""
+    input_root = Path(input_root)
+    if not input_root.exists():
+        return None
+    direct = input_root / slug
+    if direct.exists():
+        return direct
+    for kind in ("datasets", "models", "competitions"):
+        hits = sorted((input_root / kind).glob(f"*/{slug}")) + sorted((input_root / kind).glob(slug))
+        if hits:
+            return hits[0]
+    for pattern in (f"*/{slug}", f"*/*/{slug}", f"*/*/*/{slug}"):
+        hits = [h for h in sorted(input_root.glob(pattern)) if h.is_dir()]
+        if hits:
+            return hits[0]
+    return None
+
+
+def is_attached(slug: str, input_root: Path = INPUT) -> bool:
+    return dataset_root(slug, input_root) is not None
+
+
+def input_file(slug: str, rel: str, input_root: Path = INPUT) -> Optional[Path]:
+    """`rel` inside the attached dataset `slug` (any layout), or None when either is absent.
+    Searches for the file name when the dataset was uploaded with extra nesting."""
+    base = dataset_root(slug, input_root)
+    if base is None:
+        return None
+    direct = base / rel
+    if direct.exists():
+        return direct
+    hits = sorted(base.rglob(Path(rel).name), key=lambda p: len(p.parts))
+    return hits[0] if hits else None
+
+
+def list_attached(input_root: Path = INPUT) -> List[str]:
+    """Slugs of every attached input as `owner/slug` (new layout) or `slug` (classic)."""
+    input_root = Path(input_root)
+    if not input_root.exists():
+        return []
+    out = []
+    for p in sorted(input_root.iterdir()):
+        if p.name in ("datasets", "models", "competitions") and p.is_dir():
+            for owner in sorted(p.iterdir()):
+                if owner.is_dir():
+                    out.extend(f"{p.name}/{owner.name}/{d.name}" for d in sorted(owner.iterdir()) if d.is_dir())
+        else:
+            out.append(p.name)
+    return out
+
+
 def find_source(slug: str, marker: str, input_root: Path = INPUT) -> Path:
     """Locate the folder inside the attached dataset that contains `marker`
     (a file or directory name), whatever nesting Kaggle gave the upload.
     Picks the shallowest match; raises with a listing of the dataset if none."""
-    base = input_root / slug
-    if not base.exists():
-        attached = sorted(p.name for p in input_root.iterdir()) if input_root.exists() else []
-        raise FileNotFoundError(f"dataset '{slug}' is not attached. Attached inputs: {attached}")
+    base = dataset_root(slug, input_root)
+    if base is None:
+        raise FileNotFoundError(f"dataset '{slug}' is not attached. Attached inputs: {list_attached(input_root)}")
     hits = sorted(base.rglob(marker), key=lambda p: len(p.parts))
     if not hits:
         raise FileNotFoundError(f"'{marker}' not found anywhere inside {base}. Dataset layout:\n{_describe(base)}")
@@ -101,8 +158,8 @@ def merge_fakes(slugs: Iterable[str], dest, input_root: Path = INPUT) -> int:
     """Merge every attached fake dataset into DATA/fakes (each run has its own folder)."""
     dest = Path(dest)
     for slug in slugs:
-        base = input_root / slug
-        if not base.exists():
+        base = dataset_root(slug, input_root)
+        if base is None:
             print("not attached:", slug)
             continue
         chunks = list(base.rglob("chunk_*.csv"))
@@ -123,7 +180,7 @@ def merge_fakes(slugs: Iterable[str], dest, input_root: Path = INPUT) -> int:
 
 
 def optional_attach(slug: str, sub: str, dest, must_contain: str, input_root: Path = INPUT) -> Optional[Path]:
-    if (input_root / slug).exists():
+    if is_attached(slug, input_root):
         return attach(slug, sub, dest, must_contain, input_root)
     print(f"optional dataset {slug} not attached; skipping")
     return None

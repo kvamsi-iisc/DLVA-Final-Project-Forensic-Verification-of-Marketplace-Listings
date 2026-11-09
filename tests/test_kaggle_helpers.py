@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from listing_verifier.kaggle import attach, find_source, init, merge_fakes, run
+from listing_verifier.kaggle import attach, dataset_root, find_source, init, input_file, is_attached, list_attached, merge_fakes, optional_attach, run
 
 
 class AttachTests(unittest.TestCase):
@@ -30,6 +30,32 @@ class AttachTests(unittest.TestCase):
                 dest = attach("abo-prepared", "data/processed", d / "work" / "data" / "processed", "abo_clean.csv", input_root=d / "input")
                 self.assertTrue((dest / "abo_clean.csv").exists(), layout)
                 self.assertTrue((dest / "images").exists(), layout)
+
+    def test_new_kaggle_layout_datasets_owner_slug(self):
+        """Kaggle (late 2025) mounts inputs at /kaggle/input/datasets/<owner>/<slug>."""
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            inp = d / "input"
+            self._dataset(inp / "datasets" / "someuser", "abo-prepared", "expected")
+            self.assertEqual(dataset_root("abo-prepared", inp), inp / "datasets" / "someuser" / "abo-prepared")
+            self.assertTrue(is_attached("abo-prepared", inp))
+            self.assertFalse(is_attached("abo-fakes-turbo-t2i", inp))
+            self.assertEqual(list_attached(inp), ["datasets/someuser/abo-prepared"])
+            dest = attach("abo-prepared", "data/processed", d / "work" / "data" / "processed", "abo_clean.csv", input_root=inp)
+            self.assertTrue((dest / "abo_clean.csv").exists())
+            self.assertIsNone(optional_attach("phone-set", "phone", d / "work" / "data" / "phone", "labels.csv", input_root=inp))
+            # a single file inside a dataset, direct path or found by name under extra nesting
+            w = inp / "datasets" / "someuser" / "univfd-weights" / "extra"
+            w.mkdir(parents=True)
+            (w / "fc_weights.pth").write_bytes(b"x")
+            self.assertEqual(input_file("univfd-weights", "fc_weights.pth", inp), w / "fc_weights.pth")
+            self.assertIsNone(input_file("univfd-weights", "missing.pth", inp))
+            self.assertIsNone(input_file("not-attached", "fc_weights.pth", inp))
+            # merge_fakes under the new layout
+            f = inp / "datasets" / "someuser" / "abo-fakes-pilot" / "data" / "fakes" / "sdxl-turbo" / "t2i" / "run1"
+            f.mkdir(parents=True)
+            (f / "chunk_0000.csv").write_text("image_key\nk\n")
+            self.assertEqual(merge_fakes(["abo-fakes-pilot"], d / "work" / "data" / "fakes", input_root=inp), 1)
 
     def test_missing_dataset_and_marker_messages(self):
         with tempfile.TemporaryDirectory() as d:

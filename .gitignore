@@ -26,3 +26,5 @@ evaluation.txt
 *.csv.tmp
 .pytest_cache/
 .ipynb_checkpoints/
+# API tokens, never commit
+kaggle cli.txt

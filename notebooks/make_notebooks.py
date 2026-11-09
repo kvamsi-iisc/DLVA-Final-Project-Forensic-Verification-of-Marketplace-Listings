@@ -28,11 +28,12 @@ to your GitHub repo. Turn on **Internet** (pip, ABO and HF downloads). For the G
 SETUP_CODE = r'''import os, shutil, subprocess, sys, pathlib, json
 REPO_URL = "https://github.com/kvamsi-iisc/DLVA-Final-Project-Forensic-Verification-of-Marketplace-Listings.git"   # used if the code dataset is not attached
 WORK = pathlib.Path("/kaggle/working"); REPO = WORK / "repo"; DATA = WORK / "data"; OUT = WORK / "outputs"
-code_ds = pathlib.Path("/kaggle/input/listing-verifier-code")
+_inp = pathlib.Path("/kaggle/input")   # classic /kaggle/input/<slug> or newer /kaggle/input/datasets/<owner>/<slug>
+code_ds = next((p for p in [_inp / "listing-verifier-code", *sorted(_inp.glob("datasets/*/listing-verifier-code"))] if p.exists()), None)
 if REPO.exists() and (REPO / ".git").exists():
     subprocess.run(["git", "-C", str(REPO), "pull", "--ff-only", "-q"], check=False)     # pick up code fixes in a reused session
 elif not REPO.exists():
-    if code_ds.exists():
+    if code_ds is not None:
         shutil.copytree(code_ds, REPO)
     else:
         subprocess.run(["git", "clone", "--depth", "1", REPO_URL, str(REPO)], check=True)
@@ -51,11 +52,11 @@ if pip.returncode != 0:
     raise SystemExit("pip install failed; see output above")
 subprocess.run([sys.executable, "-m", "pip", "check"], check=False)
 sys.path.insert(0, str(REPO))
-from listing_verifier.kaggle import init, run, attach, optional_attach, merge_fakes   # helpers live in the repo: fixes need no re-import
+from listing_verifier.kaggle import init, run, attach, optional_attach, merge_fakes, is_attached, input_file, list_attached   # helpers live in the repo: fixes need no re-import
 WORK, REPO, DATA, OUT, LOGS = init(WORK)
 run("scripts/env_report.py", "--out", OUT / "results" / "env_report.json")
 import torch; print(f"visible GPUs: {torch.cuda.device_count()}")
-print("attached inputs:", sorted(p.name for p in pathlib.Path("/kaggle/input").iterdir()) if pathlib.Path("/kaggle/input").exists() else [])
+print("attached inputs:", list_attached())
 '''
 
 PERSIST_MD = """## Persisting outputs
@@ -218,10 +219,10 @@ if present, PNG storage diagnostic. On the **pilot**, only `main` is trained."""
    [("code", 'FAKE_SLUGS = ' + repr(FAKE_SLUGS) + '\nattach("abo-prepared", "data/processed", DATA / "processed", must_contain="abo_clean.csv")\n' + MERGE_FAKES + r'''
 optional_attach("cf-subset", "data/forensics", DATA / "forensics", must_contain="forensics_subset.csv")
 optional_attach("phone-set", "phone", DATA / "phone", must_contain="labels.csv")
-uf = pathlib.Path("/kaggle/input/univfd-weights/fc_weights.pth")
-if uf.exists():
+uf = input_file("univfd-weights", "fc_weights.pth")
+if uf is not None:
     (OUT / "checkpoints").mkdir(parents=True, exist_ok=True); shutil.copy(uf, OUT / "checkpoints" / "univfd_fc_weights.pth")
-PILOT = not pathlib.Path("/kaggle/input/abo-fakes-turbo-t2i").exists()   # pilot = only the small run is attached
+PILOT = not is_attached("abo-fakes-turbo-t2i")   # pilot = only the small run is attached
 print("PILOT mode:", PILOT)'''),
     ("code", r'''run("scripts/05_build_index.py")
 audit = json.load(open(DATA / "processed" / "nuisance_audit.json")); print(json.dumps(audit, indent=1)[:1500])
@@ -290,8 +291,8 @@ for _, r in dev.iterrows():
 print(f"logit/generation agreement: {agree}/20 (expect most to agree; if not, inspect the prompt format)")
 del vlm'''),
     ("code", 'run("scripts/09_run_consistency.py", "--splits", "train,val,test,phone", "--max-train", 2500, "--gpus", "auto")'),
-    ("code", r'''hl = pathlib.Path("/kaggle/input/hand-labels/hand_labels_filled.csv")
-if hl.exists():
+    ("code", r'''hl = input_file("hand-labels", "hand_labels_filled.csv")
+if hl is not None:
     (DATA / "hand_labels").mkdir(exist_ok=True); shutil.copy(hl, DATA / "hand_labels" / "hand_labels_filled.csv")
 run("scripts/10_train_eval_consistency.py", "--tag", "main")
 run("scripts/11_make_handlabel_sheet.py", "--n", 100)'''),
@@ -320,8 +321,8 @@ Then fill `visible_ok` in `examples.csv` by eye. On the laptop: `docs/DEMO.md` (
 SmolVLM, then three offline rehearsals from a fresh process).""",
    [("code", r'''attach("abo-prepared", "data/processed", DATA / "processed", must_contain="abo_clean.csv")
 attach("lv-features-checkpoints", "outputs/checkpoints", OUT / "checkpoints", must_contain="main")
-cal = pathlib.Path("/kaggle/input/lv-consistency/outputs/checkpoints/main")
-if cal.exists():   # ONLY the consistency-stage artifacts; never let an older copy of the heads overwrite the authenticity models
+cal = input_file("lv-consistency", "outputs/checkpoints/main")
+if cal is not None:   # ONLY the consistency-stage artifacts; never let an older copy of the heads overwrite the authenticity models
     for f in cal.glob("calibrator*"):
         shutil.copy(f, OUT / "checkpoints" / "main" / f.name); print("calibrator:", f.name)
 FAKE_SLUGS = ''' + repr(FAKE_SLUGS) + r'''
