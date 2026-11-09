@@ -29,7 +29,8 @@ def main():
     idx.to_csv(args.out, index=False)
     print(idx.groupby(["domain", "split", "generator", "mode"]).size().to_string())
     print(f"[index] {len(idx)} images -> {args.out}")
-    assert idx["label"].nunique() == 2, "index must contain both reals and fakes"
+    if idx["label"].nunique() < 2:
+        print("[index] WARNING: no fakes in the index yet (reals only); training needs fakes, see 03_generate_fakes.py")
     for split, g in idx[idx["domain"] == "catalogue"].groupby("split"):
         print(f"[index] catalogue/{split}: {int((g['label'] == 0).sum())} real, {int((g['label'] == 1).sum())} fake, {g['family_key'].nunique()} families")
     # Coverage: what the index ACTUALLY contains, per split / generator / attribute,
