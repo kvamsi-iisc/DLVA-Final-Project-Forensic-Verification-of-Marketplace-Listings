@@ -148,9 +148,7 @@ def attach(slug: str, sub: str, dest, must_contain: str, input_root: Path = INPU
     dest = Path(dest)
     if dest.exists() and (dest / must_contain).exists():
         print(f"exists: {dest}")
-        if dest not in _STATE.setdefault("attached", []):
-            _STATE["attached"].append(dest)
-        return dest
+        return dest                      # a reused session: its files are not re-recorded as copies
     if dest.exists():
         shutil.rmtree(dest)
     src = find_source(slug, must_contain, input_root)
@@ -158,24 +156,42 @@ def attach(slug: str, sub: str, dest, must_contain: str, input_root: Path = INPU
     shutil.copytree(src, dest)
     if not (dest / must_contain).exists():
         raise FileNotFoundError(f"copied {src} but {dest / must_contain} is missing")
-    _STATE.setdefault("attached", []).append(dest)
+    _record_copied(dest)
     return dest
 
 
-def remove_attached_copies(keep: Iterable = ()) -> List[Path]:
-    """Delete the input copies attach()/merge_fakes() made, so a notebook's output
+def _record_copied(dest: Path):
+    """Remember every FILE currently under dest as an input copy. Products a notebook
+    writes into the same folder later (05 writes calibrator.npz next to the attached
+    probe.npz) are not in the list and survive remove_attached_copies()."""
+    files = [p for p in Path(dest).rglob("*") if p.is_file()]
+    _STATE.setdefault("copied_files", []).extend(files)
+    _STATE.setdefault("attached", []).append(Path(dest))
+
+
+def remove_attached_copies() -> int:
+    """Delete exactly the files attach()/merge_fakes() copied in, so a notebook's output
     dataset holds only what it produced (the first pilot dataset was 95 MB of which
-    70 MB were the copied ABO reals). Call it last, after verify_outputs."""
-    keep = {Path(k).resolve() for k in keep}
-    removed = []
+    70 MB were copied ABO reals). Files written later into the same folders are kept.
+    Call it last, after verify_outputs. Returns the number of files removed."""
+    n = 0
+    for f in _STATE.get("copied_files", []):
+        if f.exists():
+            f.unlink()
+            n += 1
     for d in _STATE.get("attached", []):
-        if Path(d).resolve() in keep or not Path(d).exists():
-            continue
-        shutil.rmtree(d, ignore_errors=True)
-        removed.append(Path(d))
-        print("removed input copy:", d)
-    _STATE["attached"] = [d for d in _STATE.get("attached", []) if Path(d).resolve() in keep]
-    return removed
+        for sub in sorted((p for p in Path(d).rglob("*") if p.is_dir()), key=lambda p: -len(p.parts)):
+            if not any(sub.iterdir()):
+                sub.rmdir()
+        if Path(d).exists() and not any(Path(d).iterdir()):
+            Path(d).rmdir()
+        else:
+            kept = [p for p in Path(d).rglob("*") if p.is_file()] if Path(d).exists() else []
+            if kept:
+                print(f"kept {len(kept)} product file(s) under {d}, e.g. {kept[0].relative_to(d)}")
+    print(f"removed {n} copied input file(s)")
+    _STATE["copied_files"] = []
+    return n
 
 
 def merge_fakes(slugs: Iterable[str], dest, input_root: Path = INPUT) -> int:
@@ -200,8 +216,8 @@ def merge_fakes(slugs: Iterable[str], dest, input_root: Path = INPUT) -> int:
         print(f"merged {slug}: {len(chunks)} chunk files from {root}")
     n = len(list(dest.rglob("chunk_*.csv"))) if dest.exists() else 0
     print("fake chunks total:", n)
-    if n and dest not in _STATE.setdefault("attached", []):
-        _STATE["attached"].append(dest)
+    if n:
+        _record_copied(dest)
     return n
 
 

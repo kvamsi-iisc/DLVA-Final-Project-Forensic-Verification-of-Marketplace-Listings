@@ -59,22 +59,32 @@ class AttachTests(unittest.TestCase):
             self.assertEqual(merge_fakes(["abo-fakes-pilot"], d / "work" / "data" / "fakes", input_root=inp), 1)
 
     def test_remove_attached_copies_keeps_products(self):
+        """Only the files copied in are removed; products written later into the same
+        folder survive (notebook 05 writes calibrator.npz next to the attached probe.npz)."""
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
             inp = d / "input"
             self._dataset(inp / "datasets" / "u", "abo-prepared", "expected")
             f = inp / "datasets" / "u" / "abo-fakes-pilot" / "data" / "fakes" / "sdxl-turbo" / "t2i" / "run1"
             f.mkdir(parents=True); (f / "chunk_0000.csv").write_text("image_key\nk\n")
+            ck = inp / "datasets" / "u" / "lv-features-checkpoints" / "outputs" / "checkpoints" / "main"
+            ck.mkdir(parents=True); (ck / "probe.npz").write_bytes(b"p")
             work = d / "work" / "data"
             processed = attach("abo-prepared", "data/processed", work / "processed", "abo_clean.csv", input_root=inp)
             merge_fakes(["abo-fakes-pilot"], work / "fakes", input_root=inp)
-            (work / "features").mkdir(); (work / "features" / "features_q0.npz").write_bytes(b"x")   # a product, never attached
-            removed = remove_attached_copies(keep=[work / "fakes"])
-            self.assertEqual(removed, [processed])
-            self.assertFalse(processed.exists())
-            self.assertTrue((work / "fakes").exists() and (work / "features" / "features_q0.npz").exists())
-            self.assertEqual(remove_attached_copies(), [work / "fakes"])
-            self.assertEqual(remove_attached_copies(), [])
+            ckpt = attach("lv-features-checkpoints", "outputs/checkpoints", d / "work" / "outputs" / "checkpoints", "main", input_root=inp)
+            (processed / "index.csv").write_text("built here\n")                       # product inside an attached folder
+            (ckpt / "main" / "calibrator.npz").write_bytes(b"c")                         # product next to a copied file
+            (work / "features").mkdir(); (work / "features" / "features_q0.npz").write_bytes(b"x")   # product, never attached
+            n = remove_attached_copies()
+            self.assertEqual(n, 3)       # abo_clean.csv, chunk_0000.csv, probe.npz (the images dir holds no file)
+            self.assertFalse((processed / "abo_clean.csv").exists())
+            self.assertTrue((processed / "index.csv").exists())
+            self.assertFalse((work / "fakes").exists())                                  # nothing of ours in there
+            self.assertFalse((ckpt / "main" / "probe.npz").exists())
+            self.assertTrue((ckpt / "main" / "calibrator.npz").exists())
+            self.assertTrue((work / "features" / "features_q0.npz").exists())
+            self.assertEqual(remove_attached_copies(), 0)
 
     def test_missing_dataset_and_marker_messages(self):
         with tempfile.TemporaryDirectory() as d:
