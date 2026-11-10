@@ -74,8 +74,21 @@ def main():
     ap.add_argument("--n-examples", type=int, default=12)
     ap.add_argument("--seed", type=int, default=3)
     ap.add_argument("--no-score", action="store_true")
+    ap.add_argument("--prefetch", action="store_true",
+                    help="only download CLIP ViT-L/14 and SmolVLM into the local cache (needs internet once), then exit; "
+                         "the demo server is launched with --offline afterwards")
     ap.add_argument("--no-vlm", action="store_true", help="score with the CLIP-only calibrator too (default scores both)")
     args = ap.parse_args()
+    if args.prefetch:
+        from listing_verifier.features.clip_backbone import ClipBackbone
+        from listing_verifier.features.vlm import SmolVLM
+        print("[prefetch] CLIP ViT-L/14 (~1.7 GB) ...")
+        ClipBackbone(device="cpu")
+        print("[prefetch] SmolVLM-500M (~1 GB) ...")
+        SmolVLM(device="cpu")
+        print("[prefetch] done; the cache lives under HF_HOME / LV_CLIP_CACHE / LV_HF_CACHE if set, else the default "
+              "Hugging Face cache. Launch with: python -m listing_verifier.demo.server --bundle <bundle> --offline")
+        return
     out = Path(args.out)
     (out / "examples").mkdir(parents=True, exist_ok=True)
     log_invocation(out, {"config": vars(args)})
