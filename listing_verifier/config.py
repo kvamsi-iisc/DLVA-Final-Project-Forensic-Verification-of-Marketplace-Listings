@@ -39,6 +39,10 @@ ABO_IMAGES_SMALL_URL = "https://amazon-berkeley-objects.s3.amazonaws.com/archive
 # Why: ABO "small" images are already <=256 px JPEGs. If fakes were kept as
 # 512 px PNGs the detector could learn "PNG vs JPEG" or "512 vs 256" instead of
 # "real vs fake". Same treatment for both sides removes that shortcut.
+# Storage of fakes on disk is a separate matter: ABO reals are NOT q92 JPEGs
+# (luma tables ~17-30, varying per image), so data/fakes.py saves each fake with
+# its paired real's quantisation tables; CANON_JPEG_QUALITY is only the fallback
+# there and the in-memory canonicalisation quality here.
 # ---------------------------------------------------------------------------
 CANON_MAX_SIDE = 256
 CANON_JPEG_QUALITY = 92

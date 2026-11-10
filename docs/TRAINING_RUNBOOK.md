@@ -16,7 +16,10 @@ A vertical slice with real data, roughly 1.5 session-hours, that proves every ha
 honest numbers. Scale only after inspecting it.
 
 1. Notebook 01 as normal → `abo-prepared`.
-2. Notebook 02 with `RUN = "pilot"` (SDXL-Turbo t2i + i2i, 300/50/100 each, ~15 min) → `abo-fakes-pilot`.
+2. Notebook 02 with `RUN = "pilot"` (SDXL-Turbo t2i + i2i 0.5 + i2i 0.85, 300/50/100 each, ~40 min on T4 x2) → `abo-fakes-pilot`.
+   The first pilot (2026-11-10) failed the shortcut audit twice and taught two things now built in: fakes must copy
+   the paired real's JPEG tables (ABO is not q92), and t2i fakes do not keep the catalogue framing, so they are
+   the style-mismatched control (`--mismatch-modes t2i`) and i2i (0.5, 0.85) is the training data.
    Note the printed seconds per image; multiply by the full-run counts to get YOUR timings.
 3. Notebook 04 with only `abo-prepared`, `abo-fakes-pilot` and `cf-subset` attached. It detects pilot mode and
    trains `main` only. Gate: the nuisance audit AUROC is below 0.6 (the notebook asserts it), `catalogue/all_seen`
@@ -48,7 +51,7 @@ the report; do not re-select test samples.
 | Day | Notebook | Accelerator | Time | Produces (Kaggle dataset) |
 |---|---|---|---|---|
 | 1 | `kaggle_01_prepare_abo` | CPU | 45 min | `abo-prepared` (10k reals, clean labels, family splits) |
-| 1–2 | `kaggle_02_generate_fakes` ×5 runs | T4 x2 | 25 + 30 + 80 + 35 + 35 min | `abo-fakes-turbo-t2i`, `abo-fakes-turbo-i2i`, `abo-fakes-sd15-i2i`, `abo-fakes-kand-t2i`, `abo-fakes-kand-i2i` |
+| 1–2 | `kaggle_02_generate_fakes` ×5 runs | T4 x2 | 70 + 180 + 80 + 35 + 35 min (pilot rate: 1.4 s/img t2i, 1.8 s/img i2i) | `abo-fakes-turbo-t2i` (control), `abo-fakes-turbo-i2i` (0.5 + 0.85), `abo-fakes-sd15-i2i`, `abo-fakes-kand-t2i` (control), `abo-fakes-kand-i2i` |
 | 2 | `kaggle_03_stream_forensics` | CPU | 30–60 min | `cf-subset` (3000 images, ~75 generators) |
 | 3 | `kaggle_04_features_and_authenticity` | T4 x2 | 50 min | `lv-features-checkpoints` (features, 5 trained tags, results, PNG diagnostic) |
 | 3 | `kaggle_05_consistency` | T4 x2 | 30 min | `lv-consistency` (calibrator, results) |
@@ -101,6 +104,8 @@ Set `RUN = "turbo_t2i"`, commit (Save & Run All). Output → dataset `abo-fakes-
 Repeat with `turbo_i2i`, `sd15_i2i`, `kand_t2i` and `kand_i2i` (dataset names `abo-fakes-<run with - for _>`).
 If a session dies, commit again with the same `RUN`: finished images are skipped and only the missing ones are
 generated. Inspect the real/fake grid; the i2i fakes should keep the framing of the real photo (that is the point).
+The t2i runs are the style-mismatched control only (domain `mismatch` in the index); generate them smaller if time
+is short. The unseen-generator row needs `kand_i2i`, not `kand_t2i`.
 
 Kandinsky 2.2 is the third generator family (different decoder from both SD models). It stays **unseen** for the
 `main` model and is added only in the `all3` model, so the report can show both "unseen in-domain generator" and
@@ -151,7 +156,7 @@ record a backup video.
 | Fusion does not beat the probe on the calibration half | `recommended_mode` becomes `probe`; the server runs `--mode probe`; fusion stays a reported experiment |
 | SmolVLM too slow or weak | run with `--no-vlm`; the bundle contains `calibrator_clip_only.npz`, trained without VLM features, and the UI labels the mode |
 | Count weak | report it as partially met with the per-count table; do not call it solved on easy examples |
-| Kandinsky OOM or gated | one validated mode (t2i), or drop it and keep `turbo_only → sd15` as the unseen in-domain row |
+| Kandinsky OOM or gated | one validated mode (i2i 0.5), or drop it and keep `turbo_only → sd15` as the unseen in-domain row |
 | SD 1.5 run skipped | `main` refuses to train without every requested generator (exit 3); pass `--train-generators sdxl-turbo` for `main` and say so in the report |
 | Augmentation cache missing or partial | 07 stops with exit 3 unless q70 and q50 each cover **every** training image (`train_summary.json → augmentation` must equal `n_train` for each quality); run the `--qualities 70,50 --splits train` extraction, which appends only the missing images. There is no override flag; an un-augmented model is trained explicitly with `--augment-qualities ''` |
 | Generation blocked entirely | train on the streamed CF fakes as a disclosed, domain-confounded experiment (the control tag's recipe) |
@@ -173,6 +178,6 @@ record a backup video.
 | Probe AUROC near 1.0 on *all* sets | suspicious; check for a storage confound (PNG vs JPEG, size); every image must pass `canonicalise()` |
 | Spectrum head below 0.6 even at full quality | normal for i2i at low strength; check that `dct_map` std is not ~0 (feature cache corrupted) |
 | Material F1 low | expected; report as the weak spot, do not tune on test |
-| Kandinsky download or OOM | ~6 GB fp16 across prior + decoder; if the T4 OOMs, run with `--per-split` halves or drop `kand_i2i` (t2i alone still gives the unseen-family row) |
+| Kandinsky download or OOM | ~6 GB fp16 across prior + decoder; if the T4 OOMs, run with `--per-split` halves or drop `kand_t2i` (i2i is the unseen-family row; t2i is only the control) |
 | `[train] augmentation q=70: no cache` | run the third extraction command (`--qualities 70,50 --splits train`) before training |
 | Demo too slow on CPU | run server with `--no-vlm` (CLIP-only consistency) or keep VLM but pre-warm with one example before presenting |

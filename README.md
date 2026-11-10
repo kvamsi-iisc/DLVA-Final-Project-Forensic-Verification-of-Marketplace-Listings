@@ -29,7 +29,7 @@ listing_verifier/            the package
   data/fakes.py              chunked, resumable fake generation (diffusers)
   data/forensics_stream.py   stream a CommunityForensics subset (never the 260 GB)
   data/mismatch.py           synthetic mismatch pairs
-  features/image_ops.py      canonicalise (256 px, JPEG 92) + JPEG degradation
+  features/image_ops.py      canonicalise (256 px, in-memory JPEG 92 for features; stored fakes copy the paired real's JPEG tables) + JPEG degradation
   features/dct.py            log-DCT map + radial profile (numpy only)
   features/clip_backbone.py  frozen CLIP via open_clip
   features/vlm.py            SmolVLM multiple-choice via next-token logits

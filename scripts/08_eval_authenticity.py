@@ -93,6 +93,12 @@ def main():
     seen_fakes = cat[(cat["label"] == 1) & (cat["generator"].isin(train_gens or SEEN_GENERATORS))]
     all_seen = pd.concat([reals, seen_fakes])
     record("catalogue/all_seen", all_seen, roc=True)
+    # Risk-1 control: ABO-derived fakes whose framing does not match the catalogue (t2i with
+    # non-white backgrounds). Never trained on. A detector that is MUCH better here than on
+    # catalogue/all_seen is reading style, not generator traces.
+    mm = idx[(idx["domain"] == "mismatch") & (idx["split"] == "test") & (idx["label"] == 1)]
+    for gen in sorted(mm["generator"].unique()):
+        record(f"mismatch/{gen} [style control, not trained on]", pd.concat([reals, mm[mm["generator"] == gen]]), roc=True)
 
     fo = idx[idx["domain"] == "forensics"].copy()
     if len(fo):

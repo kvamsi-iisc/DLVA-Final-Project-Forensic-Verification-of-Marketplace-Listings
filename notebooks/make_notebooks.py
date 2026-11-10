@@ -158,12 +158,17 @@ Each run writes to its own folder (`<generator>/<mode>/n<sizes>_seed<seed>/`), s
 the same generator never share chunk files when their datasets are merged in notebook 04.""",
    [("code", r'''RUN = "pilot"   # pilot | turbo_t2i | turbo_i2i | sd15_i2i | kand_t2i | kand_i2i
 RUNS = {"turbo_t2i": [["--generator", "sdxl-turbo", "--mode", "t2i", "--per-split", "train=2100,val=300,test=600"]],
-        "turbo_i2i": [["--generator", "sdxl-turbo", "--mode", "i2i", "--strength", "0.5", "--per-split", "train=2100,val=300,test=600"]],
+        "turbo_i2i": [["--generator", "sdxl-turbo", "--mode", "i2i", "--strength", "0.5", "--per-split", "train=2100,val=300,test=600"],
+                      ["--generator", "sdxl-turbo", "--mode", "i2i", "--strength", "0.85", "--per-split", "train=2100,val=300,test=600"]],
         "sd15_i2i":  [["--generator", "sd15", "--mode", "i2i", "--strength", "0.5", "--per-split", "train=1400,val=200,test=400"]],
         "kand_t2i":  [["--generator", "kandinsky22", "--mode", "t2i", "--per-split", "train=700,val=100,test=200"]],
         "kand_i2i":  [["--generator", "kandinsky22", "--mode", "i2i", "--strength", "0.5", "--per-split", "train=700,val=100,test=200"]],
         "pilot":     [["--generator", "sdxl-turbo", "--mode", "t2i", "--per-split", "train=300,val=50,test=100"],
-                      ["--generator", "sdxl-turbo", "--mode", "i2i", "--strength", "0.5", "--per-split", "train=300,val=50,test=100"]]}
+                      ["--generator", "sdxl-turbo", "--mode", "i2i", "--strength", "0.5", "--per-split", "train=300,val=50,test=100"],
+                      ["--generator", "sdxl-turbo", "--mode", "i2i", "--strength", "0.85", "--per-split", "train=300,val=50,test=100"]]}
+# Pilot finding (2026-11-10): t2i fakes ignore "white background" (5% white pixels vs 49% in ABO) and leak the
+# label through file size alone (nuisance AUROC 0.83); i2i keeps the framing (0.46). t2i is therefore the
+# style-mismatched CONTROL set (05_build_index --mismatch-modes t2i), and i2i at 0.5 and 0.85 is the training data.
 attach("abo-prepared", "data/processed", DATA / "processed", must_contain="abo_clean.csv")
 import time
 for job in RUNS[RUN]:
@@ -225,8 +230,9 @@ if uf is not None:
     (OUT / "checkpoints").mkdir(parents=True, exist_ok=True); shutil.copy(uf, OUT / "checkpoints" / "univfd_fc_weights.pth")
 PILOT = not is_attached("abo-fakes-turbo-t2i")   # pilot = only the small run is attached
 print("PILOT mode:", PILOT)'''),
-    ("code", r'''run("scripts/05_build_index.py")
-audit = json.load(open(DATA / "processed" / "nuisance_audit.json")); print(json.dumps(audit, indent=1)[:1500])
+    ("code", r'''run("scripts/05_build_index.py", "--mismatch-modes", "t2i")     # t2i = style-mismatched control, never trained on
+audit = json.load(open(DATA / "processed" / "nuisance_audit.json")); print(json.dumps({k: v for k, v in audit.items() if k != "mismatch_control"}, indent=1)[:1500])
+print("mismatch control nuisance AUROC (expected high):", audit.get("mismatch_control", {}).get("nuisance_only_test_auroc"))
 assert audit.get("nuisance_only_test_auroc", 0.5) < 0.6, "geometry/storage leaks the label: fix the data before training"'''),
     ("code", r'''run("scripts/06_extract_features.py", "--qualities", "0", "--gpus", "auto")
 run("scripts/06_extract_features.py", "--qualities", "90,70,50,30", "--splits", "test,phone,forensics", "--gpus", "auto")
@@ -274,7 +280,7 @@ attach("lv-features-checkpoints", "outputs/checkpoints", OUT / "checkpoints", mu
 FAKE_SLUGS = ''' + repr(FAKE_SLUGS) + r'''
 ''' + MERGE_FAKES + r'''
 optional_attach("phone-set", "phone", DATA / "phone", must_contain="labels.csv")
-run("scripts/05_build_index.py", "--no-audit")     # rebuild so paths match this session (phone included)'''),
+run("scripts/05_build_index.py", "--no-audit", "--mismatch-modes", "t2i")     # rebuild so paths match this session (phone included)'''),
     ("code", r'''# VLM pilot: letter-logit answers vs generated answers on 20 train images
 import pandas as pd
 sys.path.insert(0, str(REPO))
@@ -329,7 +335,7 @@ if cal is not None:   # ONLY the consistency-stage artifacts; never let an older
 FAKE_SLUGS = ''' + repr(FAKE_SLUGS) + r'''
 ''' + MERGE_FAKES + r'''
 optional_attach("phone-set", "phone", DATA / "phone", must_contain="labels.csv")
-run("scripts/05_build_index.py", "--no-audit")
+run("scripts/05_build_index.py", "--no-audit", "--mismatch-modes", "t2i")
 run("scripts/12_build_demo_bundle.py", "--tag", "main", "--n-examples", 12)
 print(json.dumps(json.load(open(OUT / "demo_bundle" / "manifest.json")), indent=1))
 shutil.make_archive(str(WORK / "demo_bundle"), "zip", OUT / "demo_bundle"); print("zip ready: /kaggle/working/demo_bundle.zip")''')],

@@ -6,8 +6,13 @@ Modes
         Low strength (0.3) keeps framing and background identical to the real,
         which is the hardest, most confound-free kind of fake.
 
-Every fake is saved at the canonical size (longest side 256) as JPEG q=92 so
-reals and fakes have the same storage history before feature extraction.
+Every fake is saved at the canonical size (longest side 256) as a baseline JPEG
+that copies the *paired real's* quantisation tables and chroma subsampling
+(`jpeg_params_like`). ABO "small" images are not JPEG-92: their luma tables
+average 17-30 (quality roughly 60-75) and vary per image, so a fixed quality
+would make "JPEG quality" a label shortcut (the nuisance audit caught exactly
+that: AUROC 0.999 from the quantisation table alone on 2026-11-10). Sources
+that are not JPEGs (phone PNGs) fall back to CANON_JPEG_QUALITY.
 
 Geometry (evaluation P1.4): generators output squares, ABO photos are not
 square. The i2i source is letterboxed onto a white square (never stretched),
@@ -112,16 +117,52 @@ def effective_steps(generator: str, mode: str, strength: float) -> int:
     return int(steps * strength)
 
 
-def save_fake(img: Image.Image, path: Path, keep_png: bool = False, aspect=None):
-    """Crop to the source aspect, resize to canonical size, JPEG always; optional
-    lossless PNG twin at the SAME size so the diagnostic compares format only."""
+def jpeg_params_like(source) -> Dict:
+    """PIL save() kwargs that reproduce the storage of `source` (a JPEG path):
+    its quantisation tables and chroma subsampling. Falls back to the canonical
+    quality when the source is missing or not a JPEG."""
+    fallback = {"quality": CANON_JPEG_QUALITY}
+    if not source:
+        return fallback
+    try:
+        with Image.open(source) as im:
+            if im.format != "JPEG" or not getattr(im, "quantization", None):
+                return fallback
+            qt = {k: [int(v) for v in tbl] for k, tbl in im.quantization.items()}
+            try:
+                from PIL import JpegImagePlugin
+                sub = JpegImagePlugin.get_sampling(im)        # 0 = 4:4:4, 1 = 4:2:2, 2 = 4:2:0
+            except Exception:
+                sub = -1
+        params = {"qtables": [qt[k] for k in sorted(qt)]}
+        if sub in (0, 1, 2):
+            params["subsampling"] = sub
+        return params
+    except Exception:
+        return fallback
+
+
+def storage_tag(params: Dict) -> str:
+    """Short record of how a fake was encoded, written to the chunk CSV."""
+    if "qtables" in params:
+        luma = sum(params["qtables"][0]) / 64.0
+        return f"matched:luma{luma:.1f}:sub{params.get('subsampling', -1)}"
+    return f"q{params.get('quality', CANON_JPEG_QUALITY)}"
+
+
+def save_fake(img: Image.Image, path: Path, keep_png: bool = False, aspect=None, like=None) -> Dict:
+    """Crop to the source aspect, resize to canonical size, JPEG always, encoded like the
+    paired real (`like`: its path) so storage carries no label; optional lossless PNG twin
+    at the SAME size so the diagnostic compares format only. Returns the JPEG params used."""
     path.parent.mkdir(parents=True, exist_ok=True)
     if aspect:
         img = crop_to_aspect(img, int(aspect[0]), int(aspect[1]))
     small = resize_max_side(img, CANON_MAX_SIDE)
     if keep_png:
         small.save(path.with_suffix(".png"), format="PNG")
-    small.save(path, format="JPEG", quality=CANON_JPEG_QUALITY)
+    params = jpeg_params_like(like)
+    small.save(path, format="JPEG", **params)
+    return params
 
 
 def generate_chunk(gen: FakeGenerator, rows: pd.DataFrame, mode: str, strength: float, out_dir: Path,
@@ -146,12 +187,15 @@ def generate_chunk(gen: FakeGenerator, rows: pd.DataFrame, mode: str, strength: 
                 img = gen.text_to_image(prompt, seed)
             else:
                 img = gen.image_to_image(prompt, load_rgb(row["source_path"]), strength, seed)
-            save_fake(img, path, keep_png=bool(keep_png_every) and i % keep_png_every == 0, aspect=aspect)
+            storage = storage_tag(save_fake(img, path, keep_png=bool(keep_png_every) and i % keep_png_every == 0,
+                                            aspect=aspect, like=row.get("source_path")))
+        else:
+            storage = storage_tag(jpeg_params_like(path))      # resumed: describe what is on disk
         records.append({"image_key": f"{key_prefix}:{gen.generator}:{mode}:{strength:.2f}:{row['item_id']}:{seed}",
                         "item_id": row["item_id"], "path": str(path.resolve()), "generator": gen.generator,
                         "mode": mode, "strength": strength if mode == "i2i" else 0.0, "seed": seed,
                         "prompt": prompt, "source_path": row.get("source_path", ""), "licence": gen.licence,
-                        "png_twin": path.with_suffix(".png").exists(),
+                        "png_twin": path.with_suffix(".png").exists(), "storage": storage,
                         "aspect_w": aspect[0], "aspect_h": aspect[1],
                         "effective_steps": effective_steps(gen.generator, mode, strength)})
         if log_every and (i + 1) % log_every == 0:

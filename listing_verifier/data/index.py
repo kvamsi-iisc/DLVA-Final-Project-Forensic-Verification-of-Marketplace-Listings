@@ -3,7 +3,9 @@
 Columns
   image_key   unique id, e.g. 'abo:B07XYZ' or 'fake:sdxl-turbo:i2i:0.5:B07XYZ:3'
   path        absolute path to the stored JPEG
-  domain      catalogue | phone | forensics
+  domain      catalogue | mismatch | phone | forensics
+              (mismatch: ABO-derived fakes whose MODE failed the framing check, e.g. t2i
+               with non-white backgrounds; a control set, never training data)
   source      abo | fake | forensics | phone | phone_fake
   label       0 real, 1 fake
   generator   'real' or the generator family ('sdxl-turbo', 'sd15', 'cf:<name>')
@@ -14,7 +16,7 @@ Columns
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 import pandas as pd
 
@@ -150,9 +152,15 @@ def phone_rows(phone_dir: Path) -> pd.DataFrame:
 
 
 def build_index(abo_clean: pd.DataFrame, images_root: Path, fakes_dir: Path = FAKES_DIR,
-                forensics_dir: Path = FORENSICS_DIR, phone_dir: Path = PHONE_DIR) -> pd.DataFrame:
-    parts: List[pd.DataFrame] = [reals_from_abo(abo_clean, images_root),
-                                 fakes_from_chunks(fakes_dir, abo_clean)]
+                forensics_dir: Path = FORENSICS_DIR, phone_dir: Path = PHONE_DIR,
+                mismatch_modes: Sequence[str] = ()) -> pd.DataFrame:
+    """mismatch_modes: generation modes whose fakes do not share the reals' framing (the pilot
+    showed SDXL-Turbo t2i ignores 'white background': 5% white pixels vs 49% in ABO, nuisance
+    AUROC 0.83 from file size alone). They are kept as domain 'mismatch', the Risk-1 control."""
+    fakes = fakes_from_chunks(fakes_dir, abo_clean)
+    if len(fakes) and mismatch_modes:
+        fakes.loc[fakes["mode"].isin(list(mismatch_modes)), "domain"] = "mismatch"
+    parts: List[pd.DataFrame] = [reals_from_abo(abo_clean, images_root), fakes]
     parts.append(forensics_rows(forensics_dir))
     phone = phone_rows(phone_dir)
     parts.append(phone)

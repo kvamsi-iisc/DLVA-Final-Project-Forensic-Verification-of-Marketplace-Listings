@@ -127,6 +127,22 @@ class PreparePipelineTests(unittest.TestCase):
             self.assertTrue(idx["image_key"].is_unique)
             self.assertEqual(len(idx), 2)
             self.assertEqual(idx.set_index("image_key").loc["abo:B1", "split"], "train")
+            # fakes: t2i rows become the style-mismatched control domain, i2i stay catalogue
+            fk = d / "fakes" / "sdxl-turbo" / "t2i" / "run"
+            fk.mkdir(parents=True)
+            chunk = []
+            for mode, name in (("t2i", "B1_t2i_0.jpg"), ("i2i", "B2_i2i_1.jpg")):
+                (fk / name).write_bytes(b"x")
+                chunk.append({"image_key": f"fake:sdxl-turbo:{mode}:0.50:{name[:2]}:0", "item_id": name[:2], "path": str(fk / name),
+                              "generator": "sdxl-turbo", "mode": mode, "strength": 0.5 if mode == "i2i" else 0.0})
+            pd.DataFrame(chunk).to_csv(fk / "chunk_0000.csv", index=False)
+            idx = build_index(pd.DataFrame(rows), d, d / "fakes", d / "no_forensics", d / "no_phone", mismatch_modes=["t2i"])
+            dom = idx.set_index("image_key")["domain"]
+            self.assertEqual(dom["fake:sdxl-turbo:t2i:0.50:B1:0"], "mismatch")
+            self.assertEqual(dom["fake:sdxl-turbo:i2i:0.50:B2:0"], "catalogue")
+            self.assertEqual(idx.set_index("image_key").loc["fake:sdxl-turbo:t2i:0.50:B1:0", "split"], "train")   # split still inherited
+            idx = build_index(pd.DataFrame(rows), d, d / "fakes", d / "no_forensics", d / "no_phone")
+            self.assertTrue((idx["domain"] == "catalogue").all())
 
 
 if __name__ == "__main__":

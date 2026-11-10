@@ -22,9 +22,14 @@ def main():
     ap.add_argument("--phone-dir", default=str(PHONE_DIR))
     ap.add_argument("--out", default=str(PROCESSED_DIR / "index.csv"))
     ap.add_argument("--no-audit", action="store_true", help="skip the nuisance-only shortcut audit")
+    ap.add_argument("--mismatch-modes", default="t2i",
+                    help="comma-separated generation modes kept as the style-mismatched control (domain 'mismatch', "
+                         "never trained on); '' keeps every mode in the catalogue domain")
     args = ap.parse_args()
     abo = pd.read_csv(args.abo_clean)
-    idx = build_index(abo, Path(args.images_root), Path(args.fakes_dir), Path(args.forensics_dir), Path(args.phone_dir))
+    mismatch_modes = [m for m in args.mismatch_modes.split(",") if m]
+    idx = build_index(abo, Path(args.images_root), Path(args.fakes_dir), Path(args.forensics_dir), Path(args.phone_dir),
+                      mismatch_modes=mismatch_modes)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     idx.to_csv(args.out, index=False)
     print(idx.groupby(["domain", "split", "generator", "mode"]).size().to_string())
@@ -54,6 +59,14 @@ def main():
     dump_json(cov, Path(args.out).parent / "coverage.json")
     if not args.no_audit and (idx["domain"] == "catalogue").any() and (idx["label"] == 1).any():
         audit = nuisance_audit(idx)
+        if (idx["domain"] == "mismatch").any():
+            # informational: the control set is EXPECTED to leak through geometry/storage/content
+            mm = idx[idx["domain"].isin(["catalogue", "mismatch"])].copy()
+            mm = mm[(mm["label"] == 0) | (mm["domain"] == "mismatch")]
+            mm["domain"] = "catalogue"
+            audit["mismatch_control"] = {"modes": mismatch_modes, **nuisance_audit(mm)}
+            print(f"[index] mismatch control ({','.join(mismatch_modes)}): nuisance AUROC "
+                  f"{audit['mismatch_control'].get('nuisance_only_test_auroc', float('nan')):.3f} (expected high; not trained on)")
         dump_json(audit, Path(args.out).parent / "nuisance_audit.json")
         print(f"[index] nuisance audit: AUROC {audit.get('nuisance_only_test_auroc', float('nan')):.3f} -> {audit['verdict']}")
 
