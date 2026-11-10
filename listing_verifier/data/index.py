@@ -49,7 +49,18 @@ def _empty() -> pd.DataFrame:
     return pd.DataFrame(columns=INDEX_COLUMNS)
 
 
+def one_row_per_item(abo_clean: pd.DataFrame) -> pd.DataFrame:
+    """abo_clean.csv files written before 2026-11-10 can hold the same item_id twice
+    (one row per ABO marketplace). Keep the first; the image key 'abo:<item_id>' must be unique."""
+    dup = abo_clean["item_id"].duplicated(keep="first")
+    if dup.any():
+        print(f"[index] warning: {int(dup.sum())} repeated item_id rows in abo_clean (marketplace duplicates); keeping the first of each")
+        return abo_clean[~dup]
+    return abo_clean
+
+
 def reals_from_abo(abo_clean: pd.DataFrame, images_root: Path) -> pd.DataFrame:
+    abo_clean = one_row_per_item(abo_clean)
     df = abo_clean[abo_clean["keep"] & abo_clean["image_rel_path"].notna()].copy()
     out = pd.DataFrame({
         "image_key": "abo:" + df["item_id"].astype(str),
@@ -83,8 +94,8 @@ def fakes_from_chunks(fakes_dir: Path, abo_clean: Optional[pd.DataFrame], domain
         print(f"[index] warning: {int(dup.sum())} duplicate fake keys across chunk CSVs; keeping the first")
         df = df[~dup]
     if abo_clean is not None:
-        meta = abo_clean.set_index("item_id")[["split", "family_key", "product_noun", "colour", "material",
-                                               "count", "count_verifiable", "item_name"]]
+        meta = one_row_per_item(abo_clean).set_index("item_id")[["split", "family_key", "product_noun", "colour", "material",
+                                                                 "count", "count_verifiable", "item_name"]]
         df = df.join(meta, on="item_id", how="left")
     else:
         for c in ["family_key", "product_noun", "colour", "material", "count", "count_verifiable", "item_name"]:

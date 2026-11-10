@@ -50,6 +50,18 @@ def make_abo(raw: Path, n=240):
                      "model_number": [{"value": f"M{family}"}],
                      "product_description": [{"language_tag": "en_US", "value": desc}],
                      "country": "US", "domain_name": "amazon.com"})
+    # ABO repeats an item per marketplace: add a GB twin for every 20th item with its own image
+    twins = []
+    for r in recs[::20]:
+        tid = r["item_id"]; image_id = f"gb{tid}"
+        rel = f"gb/{image_id}.jpg"
+        p = raw / "images" / "small" / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray((rng.random((200, 256, 3)) * 255).astype("uint8")).save(p, quality=90)
+        imgs.append({"image_id": image_id, "height": 200, "width": 256, "path": rel})
+        twins.append({**r, "main_image_id": image_id, "country": "GB", "domain_name": "amazon.co.uk",
+                      "item_name": [{"language_tag": "en_GB", "value": r["item_name"][0]["value"] + " UK edition"}]})
+    recs += twins
     with gzip.open(raw / "listings" / "metadata" / "listings_0.json.gz", "wt") as fh:
         for r in recs:
             fh.write(json.dumps(r) + "\n")
@@ -73,6 +85,9 @@ class PreparePipelineTests(unittest.TestCase):
             clean = pd.read_csv(d / "processed" / "abo_clean.csv")
             rep = json.loads((d / "processed" / "cleaning_report.json").read_text())
             self.assertGreater(rep["drop_reasons"].get("placeholder_description", 0), 0)
+            self.assertEqual(rep["drop_reasons"].get("duplicate_item_id", 0), 12)      # one GB twin per 20 items
+            self.assertTrue(clean["item_id"].is_unique)
+            self.assertTrue((clean["domain_name"] == "amazon.com").all())             # the amazon.com row is the one kept
             self.assertEqual(set(clean["split"]), {"train", "val", "test"})
             self.assertTrue(clean["colour"].notna().mean() > 0.5)
             self.assertFalse(clean["colour"].isin(["Teal", "Multicolor"]).any())
@@ -96,6 +111,22 @@ class PreparePipelineTests(unittest.TestCase):
             self.assertNotIn("file://", html)
 
             run("verify_outputs.py", d / "processed" / "abo_clean.csv", d / "processed" / "index.csv", d / "processed" / "images")
+
+    def test_index_tolerates_old_abo_clean_with_duplicate_items(self):
+        """abo_clean.csv files from before the marketplace dedupe repeat item_ids; the index must still be unique."""
+        from listing_verifier.data.index import build_index
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            rows = []
+            for i, (item, split, rel) in enumerate([("B1", "train", "a.jpg"), ("B1", "test", "b.jpg"), ("B2", "val", "c.jpg")]):
+                (d / rel).write_bytes(b"x")
+                rows.append({"item_id": item, "keep": True, "image_rel_path": rel, "split": split, "family_key": f"f{i}",
+                             "product_noun": "sofa", "colour": "red", "material": None, "count": 1, "count_verifiable": True,
+                             "item_name": item})
+            idx = build_index(pd.DataFrame(rows), d, d / "no_fakes", d / "no_forensics", d / "no_phone")
+            self.assertTrue(idx["image_key"].is_unique)
+            self.assertEqual(len(idx), 2)
+            self.assertEqual(idx.set_index("image_key").loc["abo:B1", "split"], "train")
 
 
 if __name__ == "__main__":

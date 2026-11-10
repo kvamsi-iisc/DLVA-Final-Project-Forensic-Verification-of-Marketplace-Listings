@@ -313,13 +313,33 @@ def clean_listings(df: pd.DataFrame) -> pd.DataFrame:
     out["product_noun"] = out["product_type"].map(product_noun)
 
     reason = pd.Series([""] * len(out), index=out.index)
-    reason[out["main_image_id"].isna()] = "no_main_image"
+    reason[~preferred_marketplace_row(out)] = "duplicate_item_id"
+    reason[(reason == "") & out["main_image_id"].isna()] = "no_main_image"
     reason[(reason == "") & (~out["item_name_is_en"])] = "non_english_name"
     reason[(reason == "") & out["placeholder_desc"]] = "placeholder_description"
     reason[(reason == "") & out["item_name"].isna()] = "no_item_name"
     out["drop_reason"] = reason
     out["keep"] = reason == ""
     return out
+
+
+def preferred_marketplace_row(df: pd.DataFrame) -> pd.Series:
+    """ABO lists the same item_id once per marketplace (US, GB, CA ...), often with a
+    different title, image and family key. Keeping more than one row per item breaks the
+    unique image key in the index and can put one product in two splits (the family key
+    is title-based). True for the one row to keep per item_id: English name first, then a
+    colour label, a real description, the amazon.com listing, then file order."""
+    has_desc = df["description"].map(lambda d: d is not None and bool(str(d).strip())) & ~df["description"].map(is_placeholder_description)
+    rank = pd.DataFrame({
+        "en": df["item_name_is_en"].astype(bool).values,
+        "colour": df["colour"].notna().values,
+        "desc": has_desc.values,
+        "com": (df["domain_name"] == "amazon.com").values,
+        "pos": range(len(df)),
+    }, index=df.index)
+    order = rank.sort_values(["en", "colour", "desc", "com", "pos"], ascending=[False, False, False, False, True]).index
+    first = ~df.loc[order, "item_id"].duplicated(keep="first")
+    return first.reindex(df.index)
 
 
 def cleaning_report(df: pd.DataFrame) -> dict:
