@@ -53,7 +53,7 @@ if pip.returncode != 0:
     raise SystemExit("pip install failed; see output above")
 subprocess.run([sys.executable, "-m", "pip", "check"], check=False)
 sys.path.insert(0, str(REPO))
-from listing_verifier.kaggle import init, run, attach, optional_attach, merge_fakes, is_attached, input_file, list_attached   # helpers live in the repo: fixes need no re-import
+from listing_verifier.kaggle import init, run, attach, optional_attach, merge_fakes, is_attached, input_file, list_attached, remove_attached_copies   # helpers live in the repo: fixes need no re-import
 WORK, REPO, DATA, OUT, LOGS = init(WORK)
 run("scripts/env_report.py", "--out", OUT / "results" / "env_report.json")
 import torch; print(f"visible GPUs: {torch.cuda.device_count()}")
@@ -71,6 +71,8 @@ def cleanup_code(required):
     req = ", ".join(f'"{r}"' for r in required)
     return f'''required = [{req}]
 run("scripts/verify_outputs.py", *[WORK / r for r in required])   # exits non-zero on a missing/empty artifact
+from listing_verifier.kaggle import remove_attached_copies
+remove_attached_copies()                                  # input copies are not this notebook's output; later notebooks re-attach the datasets
 shutil.rmtree(WORK / "hf_cache", ignore_errors=True)
 shutil.rmtree(REPO / "web" / "node_modules", ignore_errors=True)
 print(subprocess.run(["du", "-sh", str(DATA), str(OUT)], capture_output=True, text=True).stdout)'''

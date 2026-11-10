@@ -148,6 +148,8 @@ def attach(slug: str, sub: str, dest, must_contain: str, input_root: Path = INPU
     dest = Path(dest)
     if dest.exists() and (dest / must_contain).exists():
         print(f"exists: {dest}")
+        if dest not in _STATE.setdefault("attached", []):
+            _STATE["attached"].append(dest)
         return dest
     if dest.exists():
         shutil.rmtree(dest)
@@ -156,7 +158,24 @@ def attach(slug: str, sub: str, dest, must_contain: str, input_root: Path = INPU
     shutil.copytree(src, dest)
     if not (dest / must_contain).exists():
         raise FileNotFoundError(f"copied {src} but {dest / must_contain} is missing")
+    _STATE.setdefault("attached", []).append(dest)
     return dest
+
+
+def remove_attached_copies(keep: Iterable = ()) -> List[Path]:
+    """Delete the input copies attach()/merge_fakes() made, so a notebook's output
+    dataset holds only what it produced (the first pilot dataset was 95 MB of which
+    70 MB were the copied ABO reals). Call it last, after verify_outputs."""
+    keep = {Path(k).resolve() for k in keep}
+    removed = []
+    for d in _STATE.get("attached", []):
+        if Path(d).resolve() in keep or not Path(d).exists():
+            continue
+        shutil.rmtree(d, ignore_errors=True)
+        removed.append(Path(d))
+        print("removed input copy:", d)
+    _STATE["attached"] = [d for d in _STATE.get("attached", []) if Path(d).resolve() in keep]
+    return removed
 
 
 def merge_fakes(slugs: Iterable[str], dest, input_root: Path = INPUT) -> int:
@@ -181,6 +200,8 @@ def merge_fakes(slugs: Iterable[str], dest, input_root: Path = INPUT) -> int:
         print(f"merged {slug}: {len(chunks)} chunk files from {root}")
     n = len(list(dest.rglob("chunk_*.csv"))) if dest.exists() else 0
     print("fake chunks total:", n)
+    if n and dest not in _STATE.setdefault("attached", []):
+        _STATE["attached"].append(dest)
     return n
 
 

@@ -3,7 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from listing_verifier.kaggle import attach, dataset_root, find_source, init, input_file, is_attached, list_attached, merge_fakes, optional_attach, run
+from listing_verifier.kaggle import (attach, dataset_root, find_source, init, input_file, is_attached, list_attached, merge_fakes,
+                                     optional_attach, remove_attached_copies, run)
 
 
 class AttachTests(unittest.TestCase):
@@ -56,6 +57,24 @@ class AttachTests(unittest.TestCase):
             f.mkdir(parents=True)
             (f / "chunk_0000.csv").write_text("image_key\nk\n")
             self.assertEqual(merge_fakes(["abo-fakes-pilot"], d / "work" / "data" / "fakes", input_root=inp), 1)
+
+    def test_remove_attached_copies_keeps_products(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            inp = d / "input"
+            self._dataset(inp / "datasets" / "u", "abo-prepared", "expected")
+            f = inp / "datasets" / "u" / "abo-fakes-pilot" / "data" / "fakes" / "sdxl-turbo" / "t2i" / "run1"
+            f.mkdir(parents=True); (f / "chunk_0000.csv").write_text("image_key\nk\n")
+            work = d / "work" / "data"
+            processed = attach("abo-prepared", "data/processed", work / "processed", "abo_clean.csv", input_root=inp)
+            merge_fakes(["abo-fakes-pilot"], work / "fakes", input_root=inp)
+            (work / "features").mkdir(); (work / "features" / "features_q0.npz").write_bytes(b"x")   # a product, never attached
+            removed = remove_attached_copies(keep=[work / "fakes"])
+            self.assertEqual(removed, [processed])
+            self.assertFalse(processed.exists())
+            self.assertTrue((work / "fakes").exists() and (work / "features" / "features_q0.npz").exists())
+            self.assertEqual(remove_attached_copies(), [work / "fakes"])
+            self.assertEqual(remove_attached_copies(), [])
 
     def test_missing_dataset_and_marker_messages(self):
         with tempfile.TemporaryDirectory() as d:
